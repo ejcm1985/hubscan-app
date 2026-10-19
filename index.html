@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>HubScan FTTH - MVP</title>
+    
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #f3f4f6; -webkit-tap-highlight-color: transparent; }
+        .hide-scrollbar::-webkit-scrollbar { display: none; }
+        .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const CameraIcon = ({ className = "w-6 h-6" }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+            </svg>
+        );
+
+        const PlusIcon = ({ className = "w-6 h-6" }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+            </svg>
+        );
+
+        const ChevronUpIcon = ({ className = "w-5 h-5" }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5 15l7-7 7 7" />
+            </svg>
+        );
+
+        const ChevronDownIcon = ({ className = "w-5 h-5" }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+            </svg>
+        );
+
+        const TrashIcon = ({ className = "w-5 h-5" }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+            </svg>
+        );
+
+        const ArrowLeftIcon = ({ className = "w-6 h-6" }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+            </svg>
+        );
+
+        const SaveIcon = ({ className = "w-6 h-6" }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
+            </svg>
+        );
+
+        const EQUIPMENT_TYPES = [
+            "ODF", "OLT", "EDFA", "Switch", "DWDM", "Chasis Splitter", 
+            "Transmisor Óptico", "Router", "UPS", "Banco de Baterías", "Otro"
+        ];
+        const STATUS_TYPES = ["Activo", "Backup", "Apagado/Falla", "Desocupado"];
+
+        const generateId = () => Math.random().toString(36).substr(2, 9);
+
+        const App = () => {
+            const [view, setView] = React.useState('home'); 
+            const [hubName, setHubName] = React.useState('');
+            const [racks, setRacks] = React.useState([]);
+            const [activeRackId, setActiveRackId] = React.useState(null);
+            const [showModal, setShowModal] = React.useState(false);
+            const [modalMessage, setModalMessage] = React.useState('');
+
+            const displayAlert = (msg) => {
+                setModalMessage(msg);
+                setShowModal(true);
+            };
+
+            const AlertModal = () => {
+                if (!showModal) return null;
+                return (
+                    <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+                        <div className="bg-white rounded-xl p-6 w-full max-w-sm shadow-xl">
+                            <h3 className="text-lg font-bold text-gray-800 mb-2">Aviso</h3>
+                            <p className="text-gray-600 mb-6">{modalMessage}</p>
+                            <button 
+                                onClick={() => setShowModal(false)}
+                                className="w-full bg-blue-600 text-white font-semibold py-2 rounded-lg"
+                            >
+                                Entendido
+                            </button>
+                        </div>
+                    </div>
+                );
+            };
+
+            const HomeView = () => {
+                const [input, setInput] = React.useState(hubName);
+                
+                const handleStart = () => {
+                    if (!input.trim()) {
+                        displayAlert("Por favor ingresa el nombre del Hub o Sitio.");
+                        return;
+                    }
+                    setHubName(input);
+                    setView('rackList');
+                };
+
+                return (
+                    <div className="flex flex-col h-screen bg-gray-50 items-center justify-center p-6">
+                        <div className="w-full max-w-md bg-white rounded-2xl shadow-lg p-8 text-center">
+                            <div className="w-20 h-20 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-6">
+                                <CameraIcon className="w-10 h-10" />
+                            </div>
+                            <h1 className="text-3xl font-bold text-gray-800 mb-2">HubScan FTTH</h1>
+                            <p className="text-gray-500 mb-8">Levantamiento Técnico Inteligente</p>
+                            
+                            <div className="text-left mb-6">
+                                <label className="block text-sm font-semibold text-gray-700 mb-2">Nombre del Hub / Sitio</label>
+                                <input 
+                                    type="text" 
+                                    value={input}
+                                    onChange={(e) => setInput(e.target.value)}
+                                    placeholder="Ej. El Tigre, San Juan..." 
+                                    className="w-full border border-gray-300 rounded-xl px-4 py-3 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition"
+                                />
+                            </div>
+                            
+                            <button 
+                                onClick={handleStart}
+                                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-xl flex items-center justify-center gap-2 transition shadow-md"
+                            >
+                                Iniciar Levantamiento
+                                <ArrowLeftIcon className="w-5 h-5 rotate-180" />
+                            </button>
+                        </div>
+                    </div>
+                );
+            };
+
+            const RackListView = () => {
+                const addRack = () => {
+                    const newRack = {
+                        id: generateId(),
+                        name: `Rack ${racks.length + 1}`,
+                        coordinate: '',
+                        mainPhoto: null,
+                        equipments: []
+                    };
+                    setRacks([...racks, newRack]);
+                };
+
+                const deleteRack = (e, id) => {
+                    e.stopPropagation();
+                    setRacks(racks.filter(r => r.id !== id));
+                };
+
+                const openRack = (id) => {
+                    setActiveRackId(id);
+                    setView('rackDetail');
+                };
+
+                const exportData = () => {
+                    if(racks.length === 0) {
+                        displayAlert("No hay datos para exportar.");
+                        return;
+                    }
+                    const data = {
+                        hubName,
+                        date: new Date().toISOString(),
+                        racks: racks
+                    };
+                    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(data, null, 2));
+                    const downloadAnchorNode = document.createElement('a');
+                    downloadAnchorNode.setAttribute("href",     dataStr);
+                    downloadAnchorNode.setAttribute("download", `Levantamiento_${hubName}.json`);
+                    document.body.appendChild(downloadAnchorNode);
+                    downloadAnchorNode.click();
+                    downloadAnchorNode.remove();
+                    displayAlert("¡Datos exportados exitosamente como JSON!");
+                };
+
+                return (
+                    <div className="flex flex-col h-screen bg-gray-50 pb-20">
+                        <header className="bg-blue-800 text-white p-4 shadow-md flex justify-between items-center sticky top-0 z-10">
+                            <div>
+                                <h1 className="text-xl font-bold">{hubName}</h1>
+                                <p className="text-xs text-blue-200">Listado de Racks</p>
+                            </div>
+                            <button onClick={() => setView('home')} className="text-blue-200 hover:text-white">
+                                <ArrowLeftIcon />
+                            </button>
+                        </header>
+
+                        <div className="p-4 flex-1 overflow-y-auto">
+                            {racks.length === 0 ? (
+                                <div className="text-center text-gray-500 mt-10">
+                                    <p>No hay racks registrados.</p>
+                                    <p className="text-sm mt-2">Presiona el botón + para agregar uno.</p>
+                                </div>
+                            ) : (
+                                <div className="grid grid-cols-1 gap-4">
+                                    {racks.map(rack => (
+                                        <div 
+                                            key={rack.id} 
+                                            onClick={() => openRack(rack.id)}
+                                            className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex items-center justify-between active:bg-gray-50 transition cursor-pointer"
+                                        >
+                                            <div className="flex items-center gap-4">
+                                                <div className="w-12 h-12 bg-gray-100 rounded-lg flex items-center justify-center overflow-hidden">
+                                                    {rack.mainPhoto ? (
+                                                        <img src={rack.mainPhoto} alt="rack" className="w-full h-full object-cover" />
+                                                    ) : (
+                                                        <CameraIcon className="w-6 h-6 text-gray-400" />
+                                                    )}
+                                                </div>
+                                                <div>
+                                                    <h3 className="font-bold text-gray-800">{rack.name || 'Sin Nombre'}</h3>
+                                                    <p className="text-xs text-gray-500">{rack.equipments.length} Equipos registrados</p>
+                                                </div>
+                                            </div>
+                                            <button 
+                                                onClick={(e) => deleteRack(e, rack.id)}
+                                                className="text-red-400 hover:text-red-600 p-2"
+                                            >
+                                                <TrashIcon />
+                                            </button>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Botones Flotantes de Acción */}
+                        <div className="fixed bottom-6 left-0 right-0 px-4 flex justify-between items-center max-w-lg mx-auto w-full pointer-events-none">
+                            <button 
+                                onClick={exportData}
+                                className="pointer-events-auto bg-gray-800 text-white p-4 rounded-full shadow-lg hover:bg-gray-900 transition flex items-center gap-2"
+                            >
+                                <SaveIcon className="w-6 h-6" />
+                            </button>
+                            
+                            <button 
+                                onClick={addRack}
+                                className="pointer-events-auto bg-blue-600 text-white p-4 rounded-full shadow-lg hover:bg-blue-700 transition flex items-center gap-2"
+                            >
+                                <PlusIcon className="w-6 h-6" />
+                                <span className="font-bold pr-2">Añadir Rack</span>
+                            </button>
+                        </div>
+                    </div>
+                );
+            };
+
+            const RackDetailView = () => {
+                const rackIndex = racks.findIndex(r => r.id === activeRackId);
+                const rack = racks[rackIndex];
+                
+                const [showEqForm, setShowEqForm] = React.useState(false);
+                const [newEq, setNewEq] = React.useState({ type: 'ODF', name: '', status: 'Activo', photo: null });
+
+                const updateRack = (updatedRack) => {
+                    const newRacks = [...racks];
+                    newRacks[rackIndex] = updatedRack;
+                    setRacks(newRacks);
+                };
+
+                const handleMainPhoto = (e) => {
+                    if (e.target.files && e.target.files[0]) {
+                        const imgUrl = URL.createObjectURL(e.target.files[0]);
+                        updateRack({ ...rack, mainPhoto: imgUrl });
+                    }
+                };
+
+                const handleEqPhoto = (e) => {
+                    if (e.target.files && e.target.files[0]) {
+                        const imgUrl = URL.createObjectURL(e.target.files[0]);
+                        setNewEq({ ...newEq, photo: imgUrl });
+                    }
+                };
+
+                const addEquipment = () => {
+                    if(!newEq.name.trim()) {
+                        displayAlert("Por favor, ingresa una descripción o nombre para el equipo.");
+                        return;
+                    }
+                    const updatedEquipments = [...rack.equipments, { ...newEq, id: generateId() }];
+                    updateRack({ ...rack, equipments: updatedEquipments });
+                    setNewEq({ type: 'ODF', name: '', status: 'Activo', photo: null });
+                    setShowEqForm(false);
+                };
+
+                const removeEquipment = (id) => {
+                    const updatedEquipments = rack.equipments.filter(eq => eq.id !== id);
+                    updateRack({ ...rack, equipments: updatedEquipments });
+                };
+
+                const moveEquipment = (index, direction) => {
+                    if (direction === -1 && index === 0) return;
+                    if (direction === 1 && index === rack.equipments.length - 1) return;
+                    
+                    const newEqs = [...rack.equipments];
+                    const temp = newEqs[index];
+                    newEqs[index] = newEqs[index + direction];
+                    newEqs[index + direction] = temp;
+                    
+                    updateRack({ ...rack, equipments: newEqs });
+                };
+
+                return (
+                    <div className="flex flex-col h-screen bg-gray-100">
+                        <header className="bg-blue-800 text-white p-4 shadow-md flex justify-between items-center sticky top-0 z-20">
+                            <div className="flex items-center gap-3">
+                                <button onClick={() => setView('rackList')} className="p-1 -ml-1 hover:bg-blue-700 rounded-lg">
+                                    <ArrowLeftIcon />
+                                </button>
+                                <input 
+                                    type="text" 
+                                    value={rack.name}
+                                    onChange={(e) => updateRack({...rack, name: e.target.value})}
+                                    className="bg-transparent font-bold text-lg focus:outline-none focus:border-b border-blue-300 w-32"
+                                />
+                            </div>
+                        </header>
+
+                        <div className="flex-1 overflow-y-auto pb-24">
+                            {/* Fotografía principal del Rack */}
+                            <div className="bg-white p-4 mb-2 shadow-sm">
+                                <div className="flex justify-between items-center mb-2">
+                                    <h2 className="font-semibold text-gray-800">Foto Frontal del Rack</h2>
+                                </div>
+                                <label className="relative block w-full h-64 bg-gray-100 border-2 border-dashed border-gray-300 rounded-xl overflow-hidden cursor-pointer hover:bg-gray-50 transition">
+                                    <input type="file" accept="image/*" capture="environment" className="hidden" onChange={handleMainPhoto} />
+                                    {rack.mainPhoto ? (
+                                        <img src={rack.mainPhoto} alt="Rack Main" className="w-full h-full object-cover" />
+                                    ) : (
+                                        <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-400">
+                                            <CameraIcon className="w-12 h-12 mb-3" />
+                                            <span className="text-sm font-medium">Tocar para capturar foto</span>
+                                        </div>
+                                    )}
+                                </label>
+                                <input 
+                                    type="text" 
+                                    placeholder="Coordenada Grid (Ej. B4)" 
+                                    value={rack.coordinate}
+                                    onChange={(e) => updateRack({...rack, coordinate: e.target.value})}
+                                    className="w-full mt-4 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
+                                />
+                            </div>
+
+                            {/* Inventario Descendente */}
+                            <div className="bg-white shadow-sm min-h-[300px]">
+                                <div className="bg-gray-800 text-white p-3 flex justify-between items-center sticky top-0 z-10">
+                                    <h2 className="font-semibold">Inventario (Tope a Base)</h2>
+                                    <span className="text-xs bg-gray-700 px-2 py-1 rounded">
+                                        {rack.equipments.length} Equipos
+                                    </span>
+                                </div>
+                                
+                                {rack.equipments.length === 0 ? (
+                                    <div className="p-8 text-center text-gray-400">
+                                        <p>Rack vacío.</p>
+                                        <p className="text-sm mt-1">Agrega equipos de arriba hacia abajo.</p>
+                                    </div>
+                                ) : (
+                                    <div className="divide-y divide-gray-100">
+                                        <div className="bg-green-50 text-center py-2 text-xs font-bold text-green-700 border-b border-green-200 uppercase tracking-widest">
+                                            ↑ Tope del Rack ↑
+                                        </div>
+                                        
+                                        {rack.equipments.map((eq, index) => (
+                                            <div key={eq.id} className="p-4 flex items-start gap-3 hover:bg-gray-50">
+                                                <div className="flex flex-col items-center gap-1 mt-1">
+                                                    <span className="w-7 h-7 rounded-full bg-blue-100 text-blue-800 text-xs font-bold flex items-center justify-center">
+                                                        {index + 1}
+                                                    </span>
+                                                    <div className="flex flex-col mt-1">
+                                                        <button onClick={() => moveEquipment(index, -1)} disabled={index === 0} className="p-1 text-gray-400 hover:text-blue-600 disabled:opacity-30"><ChevronUpIcon className="w-5 h-5" /></button>
+                                                        <button onClick={() => moveEquipment(index, 1)} disabled={index === rack.equipments.length - 1} className="p-1 text-gray-400 hover:text-blue-600 disabled:opacity-30"><ChevronDownIcon className="w-5 h-5" /></button>
+                                                    </div>
+                                                </div>
+                                                
+                                                <div className="flex-1">
+                                                    <div className="flex justify-between items-start">
+                                                        <div>
+                                                            <span className="inline-block px-2 py-0.5 bg-gray-200 text-gray-800 text-xs font-semibold rounded mb-1">{eq.type}</span>
+                                                            <h4 className="font-bold text-gray-800 text-sm leading-tight">{eq.name}</h4>
+                                                            <p className={`text-xs mt-1.5 font-medium ${eq.status === 'Activo' ? 'text-green-600' : 'text-red-500'}`}>• {eq.status}</p>
+                                                        </div>
+                                                        <button onClick={() => removeEquipment(eq.id)} className="text-gray-300 hover:text-red-500 p-2 -mr-2">
+                                                            <TrashIcon className="w-5 h-5" />
+                                                        </button>
+                                                    </div>
+                                                </div>
+
+                                                {eq.photo && (
+                                                    <div className="w-20 h-20 rounded-lg border border-gray-200 overflow-hidden flex-shrink-0 bg-gray-50 shadow-sm">
+                                                        <img src={eq.photo} className="w-full h-full object-cover" alt="Detalle" />
+                                                    </div>
+                                                )}
+                                            </div>
+                                        ))}
+
+                                        <div className="bg-gray-100 text-center py-2 text-xs font-bold text-gray-500 border-t border-gray-200 uppercase tracking-widest">
+                                            ↓ Base del Rack ↓
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
+                        {showEqForm && (
+                            <div className="fixed inset-0 bg-black bg-opacity-50 z-40 flex items-end">
+                                <div className="bg-white w-full rounded-t-2xl p-5 shadow-2xl pb-8 animate-[slideUp_0.3s_ease-out]">
+                                    <div className="flex justify-between items-center mb-4">
+                                        <h3 className="font-bold text-lg text-gray-800">Agregar Equipo</h3>
+                                        <button onClick={() => setShowEqForm(false)} className="text-gray-500 hover:bg-gray-100 rounded-full w-8 h-8 flex items-center justify-center font-bold text-xl">&times;</button>
+                                    </div>
+                                    
+                                    <div className="grid grid-cols-2 gap-3 mb-4">
+                                        <div>
+                                            <label className="block text-xs font-semibold text-gray-600 mb-1">Tipo de Equipo</label>
+                                            <select 
+                                                value={newEq.type}
+                                                onChange={e => setNewEq({...newEq, type: e.target.value})}
+                                                className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+                                            >
+                                                {EQUIPMENT_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-semibold text-gray-600 mb-1">Estado</label>
+                                            <select 
+                                                value={newEq.status}
+                                                onChange={e => setNewEq({...newEq, status: e.target.value})}
+                                                className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+                                            >
+                                                {STATUS_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                                            </select>
+                                        </div>
+                                    </div>
+
+                                    <div className="mb-4">
+                                        <label className="block text-xs font-semibold text-gray-600 mb-1">Descripción / Puertos</label>
+                                        <input 
+                                            type="text" 
+                                            placeholder="Ej. EDFA 32 ptos / ODF #1 124 Hilos"
+                                            value={newEq.name}
+                                            onChange={e => setNewEq({...newEq, name: e.target.value})}
+                                            className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+                                        />
+                                    </div>
+
+                                    <div className="mb-6">
+                                        <label className="block text-xs font-semibold text-gray-600 mb-1">Foto de Detalle del Equipo</label>
+                                        <label className="flex items-center justify-center gap-2 w-full border-2 border-dashed border-gray-300 bg-gray-50 rounded-lg px-3 py-4 text-sm font-medium text-gray-600 cursor-pointer active:bg-gray-200 transition">
+                                            <input type="file" accept="image/*" capture="environment" className="hidden" onChange={handleEqPhoto} />
+                                            {newEq.photo ? (
+                                                <span className="text-green-600 flex items-center gap-2">
+                                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path></svg>
+                                                    Foto Capturada
+                                                </span>
+                                            ) : (
+                                                <><CameraIcon className="w-5 h-5" /> Tomar foto al equipo (Opcional)</>
+                                            )}
+                                        </label>
+                                    </div>
+
+                                    <button 
+                                        onClick={addEquipment}
+                                        className="w-full bg-blue-600 text-white font-bold py-3.5 rounded-xl hover:bg-blue-700 shadow-md transition"
+                                    >
+                                        Guardar Equipo en Rack
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Botón flotante para añadir equipo */}
+                        {!showEqForm && (
+                            <button 
+                                onClick={() => setShowEqForm(true)}
+                                className="fixed bottom-6 right-6 bg-blue-600 text-white p-4 rounded-full shadow-xl hover:bg-blue-700 transition flex items-center justify-center z-30"
+                            >
+                                <PlusIcon className="w-6 h-6" />
+                            </button>
+                        )}
+
+                        <style>{`
+                            @keyframes slideUp {
+                                from { transform: translateY(100%); }
+                                to { transform: translateY(0); }
+                            }
+                        `}</style>
+                    </div>
+                );
+            };
+
+            return (
+                <div className="antialiased text-gray-900 selection:bg-blue-200">
+                    <AlertModal />
+                    {view === 'home' && <HomeView />}
+                    {view === 'rackList' && <RackListView />}
+                    {view === 'rackDetail' && <RackDetailView />}
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
