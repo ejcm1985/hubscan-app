@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>HubScan FTTH - Supabase</title>
+    <title>HubScan FTTH - Supabase & PDF Corrección</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/react@17/umd/react.production.min.js" crossorigin></script>
     <script src="https://unpkg.com/react-dom@17/umd/react-dom.production.min.js" crossorigin></script>
@@ -19,6 +19,8 @@
         .pdf-mode #pdf-template { display: block; background: white; padding: 20px; color: black; }
         .pdf-mode #app-ui { display: none; }
         .pdf-page-break { page-break-before: always; }
+        /* Forzar que las imágenes se ajusten y no se rompan en el PDF */
+        .pdf-image { max-width: 100%; object-fit: contain; }
     </style>
 </head>
 <body class="bg-gray-100 min-h-screen font-sans">
@@ -41,12 +43,17 @@
             const [isSyncing, setIsSyncing] = useState(false);
             const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
 
-            // Ahora guardamos el archivo real (File) para Supabase y un preview para la UI
+            // FUNCIÓN CORREGIDA: Ahora lee la imagen como Base64 (DataURL)
+            // Esto soluciona el problema del cuadro blanco en el PDF
             const handleImageUpload = (event, callback) => {
                 const file = event.target.files[0];
                 if (file) {
-                    const previewUrl = URL.createObjectURL(file);
-                    callback({ file: file, preview: previewUrl });
+                    const reader = new FileReader();
+                    reader.onloadend = () => {
+                        // reader.result es el Base64 listo para html2pdf
+                        callback({ file: file, preview: reader.result });
+                    };
+                    reader.readAsDataURL(file);
                 }
             };
 
@@ -66,7 +73,6 @@
                 setRacks(racks.map(r => r.id === rackId ? { ...r, equipments: r.equipments.map(eq => eq.id === eqId ? { ...eq, [field]: value } : eq) } : r));
             };
 
-            // Función para subir foto a Supabase y retornar URL pública
             const uploadPhotoToSupabase = async (file, pathName) => {
                 const fileName = `${Date.now()}_${pathName}.jpg`;
                 const { data, error } = await supabase.storage.from('fotos').upload(fileName, file, { cacheControl: '3600', upsert: false });
@@ -84,9 +90,8 @@
                 setIsSyncing(true);
 
                 try {
-                    let racksPayload = JSON.parse(JSON.stringify(racks)); // Copia profunda
+                    let racksPayload = JSON.parse(JSON.stringify(racks));
 
-                    // 1. Subir las imágenes de los Racks y Equipos al Bucket
                     for (let i = 0; i < racks.length; i++) {
                         let rack = racks[i];
                         let payloadRack = racksPayload[i];
@@ -101,12 +106,10 @@
                                 racksPayload[i].equipments[j].photoUrl = await uploadPhotoToSupabase(eq.photoData.file, `eq_${eq.id}`);
                             }
                         }
-                        // Limpiamos los objetos binarios del payload antes de guardarlos en BD
                         delete payloadRack.photoData;
                         payloadRack.equipments.forEach(e => delete e.photoData);
                     }
 
-                    // 2. Guardar el JSON estructurado en la base de datos
                     const { data, error } = await supabase
                         .from('levantamientos')
                         .insert([{ hub_name: hubName, datos_racks: racksPayload }]);
@@ -122,17 +125,31 @@
                 }
             };
 
-            // PDF de Respaldo Local (Mantiene la funcionalidad offline)
             const generatePDF = () => {
                 if (!hubName) return alert("Ingresa el nombre del Hub.");
                 setIsGeneratingPDF(true);
                 document.body.classList.add('pdf-mode');
+                
+                // Usar window.scrollTo evita un bug raro de html2pdf donde recorta arriba si hiciste scroll
+                window.scrollTo(0, 0); 
+                
                 const element = document.getElementById('pdf-template');
-                html2pdf().set({ margin: 10, filename: `${hubName}.pdf`, image: { type: 'jpeg', quality: 0.98 }, html2canvas: { scale: 2 }, jsPDF: { format: 'a4', orientation: 'portrait' } })
-                .from(element).save().then(() => {
-                    document.body.classList.remove('pdf-mode');
-                    setIsGeneratingPDF(false);
-                });
+                
+                const opt = {
+                    margin: 10,
+                    filename: `${hubName}.pdf`,
+                    image: { type: 'jpeg', quality: 0.98 },
+                    html2canvas: { scale: 2, useCORS: true, letterRendering: true },
+                    jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+                };
+
+                // Agregamos un pequeño timeout para darle tiempo al navegador a pintar las fotos pesadas
+                setTimeout(() => {
+                    html2pdf().set(opt).from(element).save().then(() => {
+                        document.body.classList.remove('pdf-mode');
+                        setIsGeneratingPDF(false);
+                    });
+                }, 500);
             };
 
             return (
@@ -211,7 +228,7 @@
                         {racks.map((rack, rIndex) => (
                             <div key={rack.id} class="mb-8">
                                 <h3 class="text-xl font-bold bg-blue-900 text-white p-2 rounded mb-4">RACK {rIndex + 1}</h3>
-                                {rack.photoData?.preview && <img src={rack.photoData.preview} style={{ maxHeight: '300px', objectFit: 'contain' }} class="mx-auto border mb-4" />}
+                                {rack.photoData?.preview && <img src={rack.photoData.preview} style={{ height: '300px' }} class="pdf-image mx-auto border mb-4" crossorigin="anonymous" />}
                                 <table class="w-full border-collapse mb-4 text-sm">
                                     <thead><tr class="bg-gray-200"><th class="border p-2 w-16">Pos</th><th class="border p-2 w-24">Equipo</th><th class="border p-2">Descripción</th></tr></thead>
                                     <tbody>
@@ -227,7 +244,7 @@
                                     {rack.equipments.filter(e => e.photoData?.preview).map((eq, eqIndex) => (
                                         <div key={eq.id} class="border rounded p-2 text-center">
                                             <p class="text-xs font-bold mb-1 bg-gray-100">RU {eqIndex + 1} - {eq.type}</p>
-                                            <img src={eq.photoData.preview} style={{ maxHeight: '150px', objectFit: 'cover' }} class="mx-auto" />
+                                            <img src={eq.photoData.preview} style={{ height: '150px' }} class="pdf-image mx-auto" crossorigin="anonymous" />
                                         </div>
                                     ))}
                                 </div>
