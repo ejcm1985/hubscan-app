@@ -1,261 +1,953 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>HubScan FTTH - Supabase & PDF Corrección</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/react@17/umd/react.production.min.js" crossorigin></script>
-    <script src="https://unpkg.com/react-dom@17/umd/react-dom.production.min.js" crossorigin></script>
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    
-    <!-- Cliente oficial de Supabase -->
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    
-    <!-- html2pdf para mantener la opción de respaldo local -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
-    <style>
-        #pdf-template { display: none; }
-        .pdf-mode #pdf-template { display: block; background: white; padding: 20px; color: black; }
-        .pdf-mode #app-ui { display: none; }
-        .pdf-page-break { page-break-before: always; }
-        /* Forzar que las imágenes se ajusten y no se rompan en el PDF */
-        .pdf-image { max-width: 100%; object-fit: contain; }
-    </style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>HubScan FTTH - Head End 1680x540 cm</title>
+  
+  <!-- CDNs Requeridos -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@17/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@17/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.10/babel.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+
+  <style>
+    .pdf-avoid-break { page-break-inside: avoid !important; }
+    /* Scroll táctil fluido para navegar los 16.8 metros del Head End en móviles */
+    .blueprint-scroll {
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: thin;
+      scrollbar-color: #38bdf8 #0f172a;
+    }
+    .blueprint-scroll::-webkit-scrollbar {
+      height: 8px;
+    }
+    .blueprint-scroll::-webkit-scrollbar-track {
+      background: #0f172a;
+    }
+    .blueprint-scroll::-webkit-scrollbar-thumb {
+      background: #0284c7;
+      border-radius: 4px;
+    }
+  </style>
 </head>
-<body class="bg-gray-100 min-h-screen font-sans">
-    <div id="root"></div>
+<body class="bg-slate-950 text-slate-100 antialiased font-sans select-none">
+  <div id="root"></div>
 
-    <script type="text/babel">
-        // ==========================================
-        // CONFIGURACIÓN DE SUPABASE
-        // ==========================================
-        const SUPABASE_URL = 'https://auagjyrexqmcztdfoihw.supabase.co';
-        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImF1YWdqeXJleHFtY3p0ZGZvaWh3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTI0MzM3NjcsImV4cCI6MjEwODAwOTc2N30.19XMDtqun8xBjQegbi9TUjczUyixHLUeErR8m_yX0UY';
-        
-        const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  <script type="text/babel">
+    const { useState, useMemo, useRef } = React;
 
-        const { useState } = React;
+    // ==========================================
+    // CONFIGURACIÓN DE SUPABASE
+    // ==========================================
+    const SUPABASE_URL = "https://TU-PROYECTO.supabase.co";
+    const SUPABASE_ANON_KEY = "TU-ANON-KEY-AQUI";
+    const supabaseClient = window.supabase && SUPABASE_URL.startsWith("https")
+      ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+      : null;
 
-        function App() {
-            const [hubName, setHubName] = useState('');
-            const [racks, setRacks] = useState([]);
-            const [isSyncing, setIsSyncing] = useState(false);
-            const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
+    // Catálogo de Equipos
+    const EQUIPMENT_TYPES = [
+      "ODF (Optical Distribution Frame)",
+      "OLT (Optical Line Terminal)",
+      "EDFA (Amplificador Óptico)",
+      "Chasis Splitter",
+      "Switch Core / Agregación",
+      "Rectificador DC / Banco Baterías",
+      "Inversor AC/DC",
+      "UPS Industrial",
+      "Bandeja de Empalme",
+      "PDU / Tablero Eléctrico",
+      "Otro"
+    ];
 
-            // FUNCIÓN CORREGIDA: Ahora lee la imagen como Base64 (DataURL)
-            // Esto soluciona el problema del cuadro blanco en el PDF
-            const handleImageUpload = (event, callback) => {
-                const file = event.target.files[0];
-                if (file) {
-                    const reader = new FileReader();
-                    reader.onloadend = () => {
-                        // reader.result es el Base64 listo para html2pdf
-                        callback({ file: file, preview: reader.result });
-                    };
-                    reader.readAsDataURL(file);
-                }
-            };
+    // DEFINICIÓN DE LAS 28 COLUMNAS Y 9 FILAS
+    const COLS = ["A","B","C","D","E","F","G","H","I","J","K","L","M","N","Ñ","O","P","Q","R","S","T","U","V","W","X","Y","Z","AA"];
+    const ROWS = [1, 2, 3, 4, 5, 6, 7, 8, 9];
 
-            const addRack = () => {
-                setRacks([...racks, { id: Date.now(), name: `Rack ${racks.length + 1}`, photoData: null, equipments: [] }]);
-            };
+    // INVENTARIO EXACTO DE LOS 25 RACKS DEL PLANO (1680x540 cm)
+    const INITIAL_RACKS_LAYOUT = [
+      // --- RACKS DE ENERGÍA (NARANJAS) ---
+      { id: 'rack-B3', code: 'B3', name: 'Rack B3 (Inversor)', col: 1, row: 2, category: 'energy' },
+      { id: 'rack-A6', code: 'A6', name: 'Rack A6 (UPS)', col: 0, row: 5, category: 'energy' },
+      { id: 'rack-B6', code: 'B6', name: 'Rack B6 (BB)', col: 1, row: 5, category: 'energy' },
 
-            const updateRackPhoto = (rackId, photoObj) => {
-                setRacks(racks.map(r => r.id === rackId ? { ...r, photoData: photoObj } : r));
-            };
+      // --- FILA 2: TELECOMUNICACIONES (ROJOS) ---
+      { id: 'rack-G2', code: 'G2', name: 'Rack G2', col: 6, row: 1, category: 'telecom' },
+      { id: 'rack-H2', code: 'H2', name: 'Rack H2', col: 7, row: 1, category: 'telecom' },
+      { id: 'rack-I2', code: 'I2', name: 'Rack I2', col: 8, row: 1, category: 'telecom' },
+      { id: 'rack-J2', code: 'J2', name: 'Rack J2', col: 9, row: 1, category: 'telecom' },
+      { id: 'rack-K2', code: 'K2', name: 'Rack K2', col: 10, row: 1, category: 'telecom' },
+      
+      { id: 'rack-P2', code: 'P2', name: 'Rack P2', col: 15, row: 1, category: 'telecom' },
+      { id: 'rack-Q2', code: 'Q2', name: 'Rack Q2', col: 16, row: 1, category: 'telecom' },
+      { id: 'rack-R2', code: 'R2', name: 'Rack R2', col: 17, row: 1, category: 'telecom' },
+      { id: 'rack-S2', code: 'S2', name: 'Rack S2', col: 18, row: 1, category: 'telecom' },
+      { id: 'rack-T2', code: 'T2', name: 'Rack T2', col: 19, row: 1, category: 'telecom' },
 
-            const addEquipment = (rackId) => {
-                setRacks(racks.map(r => r.id === rackId ? { ...r, equipments: [...r.equipments, { id: Date.now(), name: '', type: 'ODF', photoData: null }] } : r));
-            };
+      { id: 'rack-V2', code: 'V2', name: 'Rack V2', col: 21, row: 1, category: 'telecom' },
+      { id: 'rack-W2', code: 'W2', name: 'Rack W2', col: 22, row: 1, category: 'telecom' },
+      { id: 'rack-X2', code: 'X2', name: 'Rack X2', col: 23, row: 1, category: 'telecom' },
+      { id: 'rack-Y2', code: 'Y2', name: 'Rack Y2', col: 24, row: 1, category: 'telecom' },
+      { id: 'rack-Z2', code: 'Z2', name: 'Rack Z2', col: 25, row: 1, category: 'telecom' },
 
-            const updateEquipment = (rackId, eqId, field, value) => {
-                setRacks(racks.map(r => r.id === rackId ? { ...r, equipments: r.equipments.map(eq => eq.id === eqId ? { ...eq, [field]: value } : eq) } : r));
-            };
+      // --- FILA 5: RACK INDIVIDUAL ---
+      { id: 'rack-Y5', code: 'Y5', name: 'Rack Y5', col: 24, row: 4, category: 'telecom' },
 
-            const uploadPhotoToSupabase = async (file, pathName) => {
-                const fileName = `${Date.now()}_${pathName}.jpg`;
-                const { data, error } = await supabase.storage.from('fotos').upload(fileName, file, { cacheControl: '3600', upsert: false });
-                if (error) throw error;
-                const { data: publicUrlData } = supabase.storage.from('fotos').getPublicUrl(fileName);
-                return publicUrlData.publicUrl;
-            };
+      // --- FILA 6: CLUSTER INTERMEDIO ---
+      { id: 'rack-F6', code: 'F6', name: 'Rack F6', col: 5, row: 5, category: 'telecom' },
+      { id: 'rack-G6', code: 'G6', name: 'Rack G6', col: 6, row: 5, category: 'telecom' },
+      { id: 'rack-H6', code: 'H6', name: 'Rack H6', col: 7, row: 5, category: 'telecom' },
 
-            const syncToSupabase = async () => {
-                if (!hubName) {
-                    alert("Ingresa el nombre del Hub.");
-                    return;
-                }
-                
-                setIsSyncing(true);
+      // --- FILA 7: LÍNEA INFERIOR ---
+      { id: 'rack-O7', code: 'O7', name: 'Rack O7', col: 14, row: 6, category: 'telecom' },
+      { id: 'rack-P7', code: 'P7', name: 'Rack P7', col: 15, row: 6, category: 'telecom' },
+      { id: 'rack-Q7', code: 'Q7', name: 'Rack Q7', col: 16, row: 6, category: 'telecom' },
+      { id: 'rack-R7', code: 'R7', name: 'Rack R7', col: 17, row: 6, category: 'telecom' },
+      { id: 'rack-S7', code: 'S7', name: 'Rack S7', col: 18, row: 6, category: 'telecom' },
+      { id: 'rack-U7', code: 'U7', name: 'Rack U7', col: 20, row: 6, category: 'telecom' },
+      { id: 'rack-V7', code: 'V7', name: 'Rack V7', col: 21, row: 6, category: 'telecom' },
+      { id: 'rack-W7', code: 'W7', name: 'Rack W7', col: 22, row: 6, category: 'telecom' }
+    ];
 
-                try {
-                    let racksPayload = JSON.parse(JSON.stringify(racks));
+    // Helper: Procesar imagen a Base64 optimizada
+    const processImageFile = (file) => {
+      return new Promise((resolve, reject) => {
+        if (!file) return resolve(null);
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onload = (e) => {
+          const img = new Image();
+          img.src = e.target.result;
+          img.onload = () => {
+            const canvas = document.createElement("canvas");
+            const MAX_WIDTH = 1200;
+            const scaleSize = MAX_WIDTH / img.width;
+            if (scaleSize < 1) {
+              canvas.width = MAX_WIDTH;
+              canvas.height = img.height * scaleSize;
+            } else {
+              canvas.width = img.width;
+              canvas.height = img.height;
+            }
+            const ctx = canvas.getContext("2d");
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            const base64 = canvas.toDataURL("image/jpeg", 0.85);
+            canvas.toBlob((blob) => resolve({ base64, blob }), "image/jpeg", 0.85);
+          };
+          img.onerror = reject;
+        };
+        reader.onerror = reject;
+      });
+    };
 
-                    for (let i = 0; i < racks.length; i++) {
-                        let rack = racks[i];
-                        let payloadRack = racksPayload[i];
+    function App() {
+      const [hubName, setHubName] = useState("Head End Principal (1680x540 cm)");
+      const [technicianName, setTechnicianName] = useState("");
+      const [selectedRackId, setSelectedRackId] = useState(null);
+      const [zoomLevel, setZoomLevel] = useState(1);
+      const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
+      const [isSyncing, setIsSyncing] = useState(false);
+      const [toast, setToast] = useState(null);
 
-                        if (rack.photoData?.file) {
-                            payloadRack.photoUrl = await uploadPhotoToSupabase(rack.photoData.file, `rack_${rack.id}`);
-                        }
-                        
-                        for (let j = 0; j < rack.equipments.length; j++) {
-                            let eq = rack.equipments[j];
-                            if (eq.photoData?.file) {
-                                racksPayload[i].equipments[j].photoUrl = await uploadPhotoToSupabase(eq.photoData.file, `eq_${eq.id}`);
-                            }
-                        }
-                        delete payloadRack.photoData;
-                        payloadRack.equipments.forEach(e => delete e.photoData);
-                    }
+      const [racksData, setRacksData] = useState(() => {
+        return INITIAL_RACKS_LAYOUT.map(rack => ({
+          ...rack,
+          photoBase64: null,
+          photoBlob: null,
+          photoUrl: null,
+          equipments: []
+        }));
+      });
 
-                    const { data, error } = await supabase
-                        .from('levantamientos')
-                        .insert([{ hub_name: hubName, datos_racks: racksPayload }]);
+      const showToast = (message, type = "info") => {
+        setToast({ message, type });
+        setTimeout(() => setToast(null), 3500);
+      };
 
-                    if (error) throw error;
+      const activeRack = useMemo(() => {
+        return racksData.find(r => r.id === selectedRackId);
+      }, [racksData, selectedRackId]);
 
-                    alert("¡Sincronización exitosa con Supabase!");
-                } catch (error) {
-                    console.error("Error en sincronización:", error);
-                    alert("Error al subir los datos: " + error.message);
-                } finally {
-                    setIsSyncing(false);
-                }
-            };
+      // Estado de auditoría para colorear el plano
+      const getRackStatus = (rack) => {
+        const hasPhoto = Boolean(rack.photoBase64 || rack.photoUrl);
+        const hasEquipments = rack.equipments && rack.equipments.length > 0;
+        if (hasPhoto && hasEquipments) return "completed";
+        if (hasPhoto || hasEquipments) return "in-progress";
+        return "pending";
+      };
 
-            const generatePDF = () => {
-                if (!hubName) return alert("Ingresa el nombre del Hub.");
-                setIsGeneratingPDF(true);
-                document.body.classList.add('pdf-mode');
-                
-                // Usar window.scrollTo evita un bug raro de html2pdf donde recorta arriba si hiciste scroll
-                window.scrollTo(0, 0); 
-                
-                const element = document.getElementById('pdf-template');
-                
-                const opt = {
-                    margin: 10,
-                    filename: `${hubName}.pdf`,
-                    image: { type: 'jpeg', quality: 0.98 },
-                    html2canvas: { scale: 2, useCORS: true, letterRendering: true },
-                    jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
-                };
+      // Estadísticas
+      const stats = useMemo(() => {
+        let completed = 0, inProgress = 0;
+        racksData.forEach(r => {
+          const s = getRackStatus(r);
+          if (s === "completed") completed++;
+          else if (s === "in-progress") inProgress++;
+        });
+        return {
+          total: racksData.length,
+          completed,
+          inProgress,
+          pending: racksData.length - completed - inProgress
+        };
+      }, [racksData]);
 
-                // Agregamos un pequeño timeout para darle tiempo al navegador a pintar las fotos pesadas
-                setTimeout(() => {
-                    html2pdf().set(opt).from(element).save().then(() => {
-                        document.body.classList.remove('pdf-mode');
-                        setIsGeneratingPDF(false);
-                    });
-                }, 500);
-            };
+      // Zoom Controls
+      const zoomIn = () => setZoomLevel(prev => Math.min(prev + 0.25, 2.2));
+      const zoomOut = () => setZoomLevel(prev => Math.max(prev - 0.25, 0.75));
+      const resetZoom = () => setZoomLevel(1);
 
-            return (
-                <div>
-                    <div id="app-ui" class="max-w-md mx-auto bg-white min-h-screen shadow-lg pb-20">
-                        <header class="bg-blue-900 text-white p-4 sticky top-0 z-10 flex flex-col gap-2 shadow-md">
-                            <h1 class="text-xl font-bold text-center tracking-wide">HubScan FTTH</h1>
-                            <div class="flex justify-between gap-2">
-                                <button onClick={generatePDF} class="bg-gray-600 hover:bg-gray-700 px-2 py-2 rounded text-sm font-bold shadow w-1/2">
-                                    {isGeneratingPDF ? 'Creando...' : '📄 Backup PDF'}
-                                </button>
-                                <button onClick={syncToSupabase} class="bg-emerald-500 hover:bg-emerald-600 px-2 py-2 rounded text-sm font-bold shadow w-1/2 text-white">
-                                    {isSyncing ? 'Sincronizando...' : '☁️ Subir a Nube'}
-                                </button>
-                            </div>
-                        </header>
-
-                        <div class="p-4">
-                            <div class="mb-6">
-                                <label class="block text-sm font-bold text-gray-700 mb-1">Nombre del Hub / Sitio</label>
-                                <input type="text" value={hubName} onChange={(e) => setHubName(e.target.value)} placeholder="Ej: Hub San Juan" class="w-full border-2 border-gray-300 rounded p-2 outline-none uppercase font-bold" />
-                            </div>
-
-                            {racks.map((rack, rIndex) => (
-                                <div key={rack.id} class="bg-gray-50 border rounded-lg p-3 mb-6 shadow-sm">
-                                    <h2 class="text-lg font-bold text-blue-900 border-b pb-2 mb-3">Rack {rIndex + 1}</h2>
-                                    
-                                    <div class="mb-4">
-                                        <label class="block text-sm font-bold mb-1">Foto Frontal del Rack</label>
-                                        {rack.photoData?.preview ? (
-                                            <img src={rack.photoData.preview} class="w-full h-48 object-cover rounded mb-2 border" />
-                                        ) : (
-                                            <div class="border-2 border-dashed border-gray-400 bg-gray-100 h-24 rounded flex items-center justify-center mb-2">
-                                                <span class="text-gray-500 text-sm">📷 Agregar Foto Frontal</span>
-                                            </div>
-                                        )}
-                                        <input type="file" accept="image/*" capture="environment" onChange={(e) => handleImageUpload(e, (obj) => updateRackPhoto(rack.id, obj))} class="text-sm w-full"/>
-                                    </div>
-
-                                    <div class="mt-4">
-                                        <h3 class="font-bold text-sm bg-gray-200 p-1 rounded mb-2">Equipos (Tope a Base)</h3>
-                                        {rack.equipments.map((eq, eqIndex) => (
-                                            <div key={eq.id} class="bg-white border p-2 mt-2 rounded flex flex-col gap-2 shadow-sm border-l-4 border-l-blue-800">
-                                                <div class="flex gap-2">
-                                                    <span class="bg-blue-800 text-white font-bold px-2 rounded text-sm flex items-center">RU {eqIndex + 1}</span>
-                                                    <select value={eq.type} onChange={(e) => updateEquipment(rack.id, eq.id, 'type', e.target.value)} class="border rounded p-1 text-sm bg-gray-50 font-bold flex-1">
-                                                        <option>ODF</option><option>OLT</option><option>EDFA</option>
-                                                        <option>Chasis Splitter</option><option>Switch</option><option>Rectificador DC</option>
-                                                    </select>
-                                                </div>
-                                                <input type="text" placeholder="Descripción (Ej: ODF #1 124 Hilos)" value={eq.name} onChange={(e) => updateEquipment(rack.id, eq.id, 'name', e.target.value)} class="w-full border rounded p-1 text-sm outline-none"/>
-                                                <div class="flex items-center gap-2 mt-1">
-                                                    <input type="file" accept="image/*" capture="environment" onChange={(e) => handleImageUpload(e, (obj) => updateEquipment(rack.id, eq.id, 'photoData', obj))} class="text-xs w-full"/>
-                                                    {eq.photoData?.preview && <span class="text-emerald-600 text-xs font-bold whitespace-nowrap">✓ Foto Lista</span>}
-                                                </div>
-                                            </div>
-                                        ))}
-                                        <button onClick={() => addEquipment(rack.id)} class="w-full mt-3 bg-blue-100 text-blue-900 border border-blue-300 font-bold py-2 rounded text-sm hover:bg-blue-200">
-                                            + Agregar Equipo
-                                        </button>
-                                    </div>
-                                </div>
-                            ))}
-                            <button onClick={addRack} class="w-full bg-blue-900 text-white font-bold py-3 rounded-lg shadow-md hover:bg-blue-950 mb-4">
-                                + AÑADIR NUEVO RACK
-                            </button>
-                        </div>
-                    </div>
-
-                    {/* Plantilla PDF */}
-                    <div id="pdf-template" class="font-sans">
-                        <div class="text-center mb-6 border-b-4 border-blue-900 pb-2">
-                            <h1 class="text-2xl font-bold text-blue-900 uppercase">Levantamiento Técnico Hub FTTH</h1>
-                            <h2 class="text-lg font-bold">Sitio: {hubName}</h2>
-                        </div>
-                        {racks.map((rack, rIndex) => (
-                            <div key={rack.id} class="mb-8">
-                                <h3 class="text-xl font-bold bg-blue-900 text-white p-2 rounded mb-4">RACK {rIndex + 1}</h3>
-                                {rack.photoData?.preview && <img src={rack.photoData.preview} style={{ height: '300px' }} class="pdf-image mx-auto border mb-4" crossorigin="anonymous" />}
-                                <table class="w-full border-collapse mb-4 text-sm">
-                                    <thead><tr class="bg-gray-200"><th class="border p-2 w-16">Pos</th><th class="border p-2 w-24">Equipo</th><th class="border p-2">Descripción</th></tr></thead>
-                                    <tbody>
-                                        {rack.equipments.map((eq, eqIndex) => (
-                                            <tr key={eq.id}>
-                                                <td class="border p-2 text-center font-bold">RU {eqIndex + 1}</td>
-                                                <td class="border p-2 font-bold">{eq.type}</td><td class="border p-2 uppercase">{eq.name || '-'}</td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
-                                <div class="grid grid-cols-2 gap-4 mt-4">
-                                    {rack.equipments.filter(e => e.photoData?.preview).map((eq, eqIndex) => (
-                                        <div key={eq.id} class="border rounded p-2 text-center">
-                                            <p class="text-xs font-bold mb-1 bg-gray-100">RU {eqIndex + 1} - {eq.type}</p>
-                                            <img src={eq.photoData.preview} style={{ height: '150px' }} class="pdf-image mx-auto" crossorigin="anonymous" />
-                                        </div>
-                                    ))}
-                                </div>
-                                <div class="pdf-page-break"></div>
-                            </div>
-                        ))}
-                    </div>
-                </div>
-            );
+      // Gestión de Fotos y Equipos del Rack Seleccionado
+      const handleRackPhoto = async (e) => {
+        const file = e.target.files[0];
+        if (!file || !selectedRackId) return;
+        try {
+          const res = await processImageFile(file);
+          setRacksData(prev => prev.map(r => r.id === selectedRackId ? {
+            ...r,
+            photoBase64: res.base64,
+            photoBlob: res.blob
+          } : r));
+          showToast(`Foto de ${activeRack.name} cargada`, "success");
+        } catch (err) {
+          showToast("Error al procesar foto", "error");
         }
-        ReactDOM.render(<App />, document.getElementById('root'));
-    </script>
+      };
+
+      const addEquipment = () => {
+        if (!selectedRackId) return;
+        const defaultType = activeRack.category === 'energy' 
+          ? "Rectificador DC / Banco Baterías" 
+          : EQUIPMENT_TYPES[0];
+
+        setRacksData(prev => prev.map(r => {
+          if (r.id === selectedRackId) {
+            return {
+              ...r,
+              equipments: [
+                ...r.equipments,
+                {
+                  id: "eq-" + Date.now(),
+                  type: defaultType,
+                  details: "",
+                  photoBase64: null,
+                  photoBlob: null,
+                  photoUrl: null
+                }
+              ]
+            };
+          }
+          return r;
+        }));
+      };
+
+      const updateEquipment = (eqId, field, value) => {
+        setRacksData(prev => prev.map(r => {
+          if (r.id === selectedRackId) {
+            return {
+              ...r,
+              equipments: r.equipments.map(eq => eq.id === eqId ? { ...eq, [field]: value } : eq)
+            };
+          }
+          return r;
+        }));
+      };
+
+      const removeEquipment = (eqId) => {
+        setRacksData(prev => prev.map(r => {
+          if (r.id === selectedRackId) {
+            return {
+              ...r,
+              equipments: r.equipments.filter(eq => eq.id !== eqId)
+            };
+          }
+          return r;
+        }));
+      };
+
+      const handleEqPhoto = async (eqId, e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        try {
+          const res = await processImageFile(file);
+          setRacksData(prev => prev.map(r => {
+            if (r.id === selectedRackId) {
+              return {
+                ...r,
+                equipments: r.equipments.map(eq => eq.id === eqId ? {
+                  ...eq,
+                  photoBase64: res.base64,
+                  photoBlob: res.blob
+                } : eq)
+              };
+            }
+            return r;
+          }));
+          showToast("Foto de equipo guardada", "success");
+        } catch (err) {
+          showToast("Error procesando imagen de detalle", "error");
+        }
+      };
+
+      // Exportar PDF
+      const generatePDF = async () => {
+        setIsGeneratingPdf(true);
+        const element = document.getElementById("pdf-report");
+        const options = {
+          margin: [8, 8, 8, 8],
+          filename: `HubScan_${hubName.replace(/\s+/g, '_')}.pdf`,
+          image: { type: "jpeg", quality: 0.98 },
+          html2canvas: { scale: 2, useCORS: true },
+          jsPDF: { unit: "mm", format: "a4", orientation: "portrait" }
+        };
+        try {
+          await window.html2pdf().set(options).from(element).save();
+          showToast("Reporte PDF descargado con éxito", "success");
+        } catch (err) {
+          showToast("Error al compilar el PDF", "error");
+        } finally {
+          setIsGeneratingPdf(false);
+        }
+      };
+
+      // Subir a Supabase
+      const syncWithSupabase = async () => {
+        if (!supabaseClient || SUPABASE_URL.includes("TU-PROYECTO")) {
+          showToast("Configura tus credenciales reales de Supabase en el código", "warning");
+          return;
+        }
+        setIsSyncing(true);
+        try {
+          const sanitizedHub = hubName.replace(/[^a-zA-Z0-9-_]/g, "_");
+          const cleanedRacks = [];
+
+          for (const rack of racksData) {
+            let rackPublicUrl = rack.photoUrl;
+            if (rack.photoBlob) {
+              const path = `${sanitizedHub}/${rack.id}_frontal_${Date.now()}.jpg`;
+              await supabaseClient.storage.from("fotos").upload(path, rack.photoBlob, { upsert: true });
+              const { data } = supabaseClient.storage.from("fotos").getPublicUrl(path);
+              rackPublicUrl = data.publicUrl;
+            }
+
+            const cleanEquipments = [];
+            for (const eq of rack.equipments) {
+              let eqPublicUrl = eq.photoUrl;
+              if (eq.photoBlob) {
+                const eqPath = `${sanitizedHub}/eq_${eq.id}_${Date.now()}.jpg`;
+                await supabaseClient.storage.from("fotos").upload(eqPath, eq.photoBlob, { upsert: true });
+                const { data } = supabaseClient.storage.from("fotos").getPublicUrl(eqPath);
+                eqPublicUrl = data.publicUrl;
+              }
+              cleanEquipments.push({
+                id: eq.id,
+                type: eq.type,
+                details: eq.details,
+                photoUrl: eqPublicUrl
+              });
+            }
+
+            cleanedRacks.push({
+              id: rack.id,
+              name: rack.name,
+              code: rack.code,
+              category: rack.category,
+              photoUrl: rackPublicUrl,
+              equipments: cleanEquipments
+            });
+          }
+
+          const { error } = await supabaseClient.from("levantamientos").insert([{
+            hub_name: hubName,
+            tecnico: technicianName || "Técnico Campo",
+            datos_racks: cleanedRacks,
+            created_at: new Date().toISOString()
+          }]);
+
+          if (error) throw error;
+          showToast("¡Plano de 25 Racks sincronizado exitosamente!", "success");
+        } catch (err) {
+          showToast(`Error de subida: ${err.message}`, "error");
+        } finally {
+          setIsSyncing(false);
+        }
+      };
+
+      // RENDERIZADO DE LAS ESCALERILLAS AMARILLAS (CABLE TRAYS)
+      const renderYellowCableTray = (x, y, w, h, isVertical = false) => {
+        const step = 14;
+        const rungs = [];
+        if (!isVertical) {
+          for (let i = x; i < x + w; i += step) {
+            rungs.push(<line key={i} x1={i} y1={y} x2={i} y2={y + h} stroke="#eab308" strokeWidth="1" opacity="0.85" />);
+          }
+        } else {
+          for (let i = y; i < y + h; i += step) {
+            rungs.push(<line key={i} x1={x} y1={i} x2={x + w} y2={i} stroke="#eab308" strokeWidth="1" opacity="0.85" />);
+          }
+        }
+        return (
+          <g key={`tray-${x}-${y}`}>
+            <rect x={x} y={y} width={w} height={h} fill="#fef08a" fillOpacity="0.15" stroke="#eab308" strokeWidth="1.5" />
+            {rungs}
+          </g>
+        );
+      };
+
+      return (
+        <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
+          
+          {/* TOAST ALERT */}
+          {toast && (
+            <div className={`fixed top-4 right-4 z-50 px-4 py-2.5 rounded-xl shadow-2xl text-xs font-bold text-white transition-all ${
+              toast.type === "success" ? "bg-emerald-600" :
+              toast.type === "error" ? "bg-rose-600" : "bg-sky-600"
+            }`}>
+              {toast.message}
+            </div>
+          )}
+
+          {/* BARRA SUPERIOR */}
+          <header className="bg-slate-900 border-b border-slate-800 px-4 py-3 sticky top-0 z-30 shadow-md">
+            <div className="max-w-7xl mx-auto flex items-center justify-between">
+              <div className="flex items-center space-x-3">
+                <div className="w-8 h-8 rounded-lg bg-amber-500 flex items-center justify-center font-black text-slate-950">
+                  ⚡
+                </div>
+                <div>
+                  <input
+                    type="text"
+                    value={hubName}
+                    onChange={(e) => setHubName(e.target.value)}
+                    className="bg-transparent font-extrabold text-sm sm:text-base text-white focus:outline-none focus:border-b border-sky-400"
+                  />
+                  <p className="text-[11px] text-slate-400 font-medium">Dimension Head End 1680x540 Cm • 25 Racks</p>
+                </div>
+              </div>
+
+              <div className="flex items-center space-x-2">
+                <button
+                  onClick={generatePDF}
+                  disabled={isGeneratingPdf}
+                  className="bg-slate-800 hover:bg-slate-700 text-xs px-3 py-2 rounded-lg font-semibold flex items-center space-x-1"
+                >
+                  <span>{isGeneratingPdf ? "..." : "📄 PDF"}</span>
+                </button>
+                <button
+                  onClick={syncWithSupabase}
+                  disabled={isSyncing}
+                  className="bg-emerald-600 hover:bg-emerald-500 text-xs px-3.5 py-2 rounded-lg font-semibold flex items-center space-x-1 text-white shadow-lg shadow-emerald-900/30"
+                >
+                  <span>{isSyncing ? "..." : "☁️ Subir"}</span>
+                </button>
+              </div>
+            </div>
+          </header>
+
+          {/* BARRA DE ESTADO / LEYENDA */}
+          <div className="bg-slate-900/60 border-b border-slate-800 px-4 py-2.5">
+            <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-3 text-xs">
+              <div className="flex items-center space-x-4">
+                <span className="text-slate-400 font-medium">Progreso:</span>
+                <span className="flex items-center text-emerald-400 font-bold">
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 mr-1.5"></span>
+                  {stats.completed} Auditados
+                </span>
+                <span className="flex items-center text-amber-400 font-bold">
+                  <span className="w-2.5 h-2.5 rounded-full bg-amber-500 mr-1.5"></span>
+                  {stats.inProgress} En Proceso
+                </span>
+                <span className="flex items-center text-rose-400 font-bold">
+                  <span className="w-2.5 h-2.5 rounded-full bg-rose-500 mr-1.5"></span>
+                  {stats.pending} Pendientes
+                </span>
+              </div>
+              <div className="flex items-center space-x-4 text-[11px] text-slate-400">
+                <span className="flex items-center"><span className="w-3 h-3 rounded bg-amber-500 mr-1"></span> Energía (UPS/BB)</span>
+                <span className="flex items-center"><span className="w-3 h-3 rounded bg-red-600 mr-1"></span> Telecom</span>
+                <span className="flex items-center"><span className="w-3 h-3 rounded bg-emerald-600 mr-1"></span> Auditado</span>
+              </div>
+            </div>
+          </div>
+
+          {/* CONTENEDOR PRINCIPAL DEL PLANO */}
+          <main className="flex-1 p-3 sm:p-4 max-w-7xl mx-auto w-full flex flex-col relative">
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-3 shadow-2xl flex-1 flex flex-col relative overflow-hidden">
+              
+              {/* Barra de Herramientas del Plano */}
+              <div className="flex justify-between items-center mb-2 px-1">
+                <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                  Sala Head End • Escala 1680x540 cm (1:1 Vectorial)
+                </span>
+                
+                {/* Botones de Zoom flotantes estilo CAD */}
+                <div className="flex items-center space-x-1 bg-slate-800 p-1 rounded-xl border border-slate-700">
+                  <button onClick={zoomOut} className="px-2 py-1 text-xs hover:bg-slate-700 rounded text-slate-300 font-bold">-</button>
+                  <button onClick={resetZoom} className="px-2 py-1 text-[11px] hover:bg-slate-700 rounded text-sky-400 font-mono font-bold">
+                    {Math.round(zoomLevel * 100)}%
+                  </button>
+                  <button onClick={zoomIn} className="px-2 py-1 text-xs hover:bg-slate-700 rounded text-slate-300 font-bold">+</button>
+                </div>
+              </div>
+
+              {/* CONTENEDOR CON SCROLL HORIZONTAL TÁCTIL Y ZOOM */}
+              <div className="blueprint-scroll overflow-x-auto overflow-y-auto border border-slate-700/80 rounded-xl bg-white p-3 flex-1 flex items-start">
+                <div 
+                  style={{ 
+                    minWidth: "1680px",
+                    transform: `scale(${zoomLevel})`,
+                    transformOrigin: "top left",
+                    transition: "transform 0.15s ease-out"
+                  }} 
+                  className="relative select-none"
+                >
+                  
+                  {/* DIBUJO VECTORIAL COMPLETO DE LA SALA 1680x540 CM */}
+                  <svg viewBox="0 0 1780 580" className="w-full h-auto">
+                    <defs>
+                      <pattern id="gridLarge" width="60" height="58" patternUnits="userSpaceOnUse">
+                        <path d="M 60 0 L 0 0 0 58" fill="none" stroke="#e2e8f0" strokeWidth="1" />
+                      </pattern>
+                    </defs>
+
+                    {/* Grilla y fondo blanco de precisión */}
+                    <rect x="45" y="25" width="1710" height="530" fill="#ffffff" />
+                    <rect x="45" y="25" width="1710" height="530" fill="url(#gridLarge)" />
+                    <rect x="45" y="25" width="1710" height="530" fill="none" stroke="#93c5fd" strokeWidth="1.5" />
+
+                    {/* Rótulos de Columnas (A -> AA) */}
+                    {COLS.map((col, idx) => (
+                      <text
+                        key={col}
+                        x={45 + (idx * 60) + 30}
+                        y="18"
+                        textAnchor="middle"
+                        fill="#1e293b"
+                        fontSize="12"
+                        fontWeight="bold"
+                      >
+                        {col}
+                      </text>
+                    ))}
+
+                    {/* Rótulos de Filas (1 -> 9) */}
+                    {ROWS.map((row, idx) => (
+                      <text
+                        key={row}
+                        x="25"
+                        y={25 + (idx * 58) + 34}
+                        textAnchor="middle"
+                        fill="#1e293b"
+                        fontSize="13"
+                        fontWeight="bold"
+                      >
+                        {row}
+                      </text>
+                    ))}
+
+                    {/* 1. Muros estructurales perimetrales (Gris grueso en columnas A-D) */}
+                    <path
+                      d="M 285 25 L 285 140 L 45 140 L 45 435 L 285 435 L 285 555"
+                      fill="none"
+                      stroke="#94a3b8"
+                      strokeWidth="9"
+                      strokeLinecap="square"
+                    />
+
+                    {/* 2. ESCALERILLAS AMARILLAS PORTACABLES (CABLE TRAYS) */}
+                    {/* Bandeja superior Fila 2 (Cols F -> AA) */}
+                    {renderYellowCableTray(345, 110, 1370, 26, false)}
+
+                    {/* Bandeja intermedia Fila 4 (Cols C -> AA) */}
+                    {renderYellowCableTray(175, 230, 1540, 26, false)}
+
+                    {/* Bandeja inferior Fila 7 (Cols R -> AA) */}
+                    {renderYellowCableTray(1065, 410, 650, 26, false)}
+
+                    {/* Bajantes Verticales de Escalerilla */}
+                    {/* Bajante Col H */}
+                    {renderYellowCableTray(465, 110, 26, 230, true)}
+                    {/* Bajante Col Q */}
+                    {renderYellowCableTray(1005, 110, 26, 290, true)}
+                    {/* Bajante Col M */}
+                    {renderYellowCableTray(765, 256, 26, 154, true)}
+                    {/* Bajante Col Ñ */}
+                    {renderYellowCableTray(885, 256, 26, 154, true)}
+                    {/* Bajante final Col AA */}
+                    {renderYellowCableTray(1685, 110, 26, 360, true)}
+
+                    {/* 3. Equipos de Aire Acondicionado (Splits con cuña roja) */}
+                    {/* AC en Columna V1 */}
+                    <rect x="1310" y="30" width="40" height="15" rx="3" fill="#e2e8f0" stroke="#64748b" strokeWidth="1" />
+                    <polygon points="1312,43 1348,43 1348,34" fill="#ef4444" />
+                    
+                    {/* AC en Columna M8 */}
+                    <rect x="710" y="440" width="40" height="15" rx="3" fill="#e2e8f0" stroke="#64748b" strokeWidth="1" />
+                    <polygon points="712,453 748,453 748,444" fill="#ef4444" />
+
+                    {/* 4. Columnas cilíndricas grises entre racks */}
+                    {[405, 465, 525, 585, 645, 945, 1005, 1065, 1125, 1185, 1245, 1305, 1365, 1425, 1485, 1545, 1605, 1665].map((cx, i) => (
+                      <circle key={i} cx={cx} cy="180" r="5" fill="#94a3b8" />
+                    ))}
+
+                    {/* 5. RACKS INTERACTIVOS DEL PLANO */}
+                    {racksData.map((rack) => {
+                      const posX = 45 + (rack.col * 60) + 4;
+                      const posY = 25 + (rack.row * 58) + 8;
+                      const status = getRackStatus(rack);
+                      const isSelected = selectedRackId === rack.id;
+
+                      // Color base según categoría y estado
+                      let fillColor = rack.category === "energy" ? "#f97316" : "#ef4444"; // Naranja o Rojo
+                      if (status === "in-progress") fillColor = "#f59e0b"; // Amarillo
+                      if (status === "completed") fillColor = "#10b981"; // Verde esmeralda auditado
+
+                      return (
+                        <g
+                          key={rack.id}
+                          onClick={() => setSelectedRackId(rack.id)}
+                          className="cursor-pointer transition-transform duration-100 hover:opacity-90 active:scale-95"
+                        >
+                          {/* Sombra de selección activa */}
+                          {isSelected && (
+                            <rect
+                              x={posX - 3}
+                              y={posY - 3}
+                              width="58"
+                              height="46"
+                              rx="8"
+                              fill="none"
+                              stroke="#0284c7"
+                              strokeWidth="3"
+                              strokeDasharray="4 2"
+                            />
+                          )}
+
+                          {/* Caja del Rack */}
+                          <rect
+                            x={posX}
+                            y={posY}
+                            width="52"
+                            height="40"
+                            rx="5"
+                            fill={fillColor}
+                            stroke={rack.category === "energy" ? "#c2410c" : "#b91c1c"}
+                            strokeWidth="1"
+                          />
+
+                          {/* Flecha frontal característica */}
+                          <path
+                            d={`M ${posX + 42} ${posY + 28} L ${posX + 48} ${posY + 34} M ${posX + 48} ${posY + 34} L ${posX + 42} ${posY + 34} M ${posX + 48} ${posY + 34} L ${posX + 48} ${posY + 28}`}
+                            fill="none"
+                            stroke="#ffffff"
+                            strokeWidth="1.5"
+                            strokeLinecap="round"
+                          />
+
+                          {/* Texto / Nombre del Rack */}
+                          <text
+                            x={posX + 26}
+                            y={posY + (rack.category === 'energy' ? 18 : 22)}
+                            textAnchor="middle"
+                            fill="#ffffff"
+                            fontSize="8"
+                            fontWeight="bold"
+                            style={{ pointerEvents: 'none' }}
+                          >
+                            {rack.name.split(" ")[0] + " " + rack.name.split(" ")[1]}
+                          </text>
+
+                          {rack.category === 'energy' && (
+                            <text
+                              x={posX + 26}
+                              y={posY + 28}
+                              textAnchor="middle"
+                              fill="#ffffff"
+                              fontSize="7"
+                              fontWeight="bold"
+                              style={{ pointerEvents: 'none' }}
+                            >
+                              {rack.name.includes("UPS") ? "(UPS)" : rack.name.includes("BB") ? "(BB)" : "(Inversor)"}
+                            </text>
+                          )}
+
+                          {/* Badge de cantidad de equipos o Check de terminado */}
+                          {status === "completed" ? (
+                            <g transform={`translate(${posX + 36}, ${posY - 6})`}>
+                              <circle cx="6" cy="6" r="7" fill="#10b981" stroke="#ffffff" strokeWidth="1.5" />
+                              <text x="6" y="9" textAnchor="middle" fill="#ffffff" fontSize="8" fontWeight="bold">✓</text>
+                            </g>
+                          ) : rack.equipments.length > 0 && (
+                            <g transform={`translate(${posX + 36}, ${posY - 6})`}>
+                              <circle cx="6" cy="6" r="7" fill="#0f172a" stroke="#ffffff" strokeWidth="1" />
+                              <text x="6" y="9" textAnchor="middle" fill="#ffffff" fontSize="8" fontWeight="bold">
+                                {rack.equipments.length}
+                              </text>
+                            </g>
+                          )}
+                        </g>
+                      );
+                    })}
+                  </svg>
+                </div>
+              </div>
+            </div>
+          </main>
+
+          {/* =========================================================================
+              MODAL / PANEL LATERAL DE AUDITORÍA DEL RACK
+             ========================================================================= */}
+          {activeRack && (
+            <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex justify-end">
+              <div className="bg-slate-900 border-l border-slate-800 w-full max-w-xl h-full flex flex-col shadow-2xl animate-in slide-in-from-right duration-200">
+                
+                {/* Cabecera */}
+                <div className="bg-slate-800 p-4 border-b border-slate-700 flex items-center justify-between">
+                  <div className="flex items-center space-x-3">
+                    <span className={`px-2.5 py-1 rounded text-xs font-black text-slate-950 ${
+                      getRackStatus(activeRack) === 'completed' ? 'bg-emerald-400' :
+                      activeRack.category === 'energy' ? 'bg-amber-400' : 'bg-rose-400'
+                    }`}>
+                      {activeRack.code}
+                    </span>
+                    <div>
+                      <h2 className="text-base font-extrabold text-white">{activeRack.name}</h2>
+                      <p className="text-[11px] text-slate-400">
+                        {activeRack.category === 'energy' ? 'Gabinete de Energía / Respaldo' : 'Gabinete de Telecomunicaciones FTTH'}
+                      </p>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() => setSelectedRackId(null)}
+                    className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-700 text-sm font-bold"
+                  >
+                    ✕ Cerrar
+                  </button>
+                </div>
+
+                {/* Cuerpo scrolleable */}
+                <div className="flex-1 overflow-y-auto p-4 space-y-5">
+                  
+                  {/* Foto Frontal */}
+                  <div className="bg-slate-800/60 p-4 rounded-xl border border-slate-700">
+                    <div className="flex items-center justify-between mb-3">
+                      <div>
+                        <label className="text-xs font-bold uppercase text-slate-300">Foto Frontal de {activeRack.name}</label>
+                        <p className="text-[11px] text-slate-500">Vista completa vertical</p>
+                      </div>
+                      <label className="cursor-pointer bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold px-3 py-2 rounded-lg transition-all flex items-center space-x-1">
+                        <span>📷 {activeRack.photoBase64 ? "Reemplazar" : "Tomar Foto"}</span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          capture="environment"
+                          className="hidden"
+                          onChange={handleRackPhoto}
+                        />
+                      </label>
+                    </div>
+
+                    {activeRack.photoBase64 ? (
+                      <div className="relative rounded-lg overflow-hidden border border-slate-700 max-h-56 bg-black flex justify-center">
+                        <img src={activeRack.photoBase64} alt="Rack Frontal" className="object-contain max-h-56 w-auto" />
+                        <span className="absolute top-2 left-2 bg-emerald-600 text-white text-[10px] font-bold px-2 py-0.5 rounded shadow">
+                          ✓ Foto Lista
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="text-center py-6 border border-dashed border-slate-700 rounded-lg text-slate-500 text-xs">
+                        Sin fotografía frontal cargada
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Lista de Equipos Top-Down */}
+                  <div>
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="text-xs font-bold uppercase text-slate-300 tracking-wider">
+                        Equipos en Rack (Orden Descendente)
+                      </h3>
+                      <button
+                        onClick={addEquipment}
+                        className="bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold px-3 py-1.5 rounded-lg flex items-center space-x-1"
+                      >
+                        <span>＋ Agregar RU</span>
+                      </button>
+                    </div>
+
+                    {activeRack.equipments.length === 0 ? (
+                      <div className="text-center py-8 bg-slate-800/40 rounded-xl border border-slate-800 text-slate-500 text-xs">
+                        No hay equipos registrados. Presiona "＋ Agregar RU" para empezar de arriba hacia abajo.
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {activeRack.equipments.map((eq, idx) => (
+                          <div key={eq.id} className="bg-slate-800/80 border border-slate-700 p-3.5 rounded-xl space-y-3">
+                            <div className="flex items-center justify-between">
+                              <span className="bg-sky-500 text-slate-950 font-mono font-black text-xs px-2 py-0.5 rounded">
+                                RU {idx + 1}
+                              </span>
+                              <button
+                                onClick={() => removeEquipment(eq.id)}
+                                className="text-rose-400 hover:text-rose-300 text-xs font-medium"
+                              >
+                                Eliminar
+                              </button>
+                            </div>
+
+                            <div className="grid grid-cols-1 gap-2">
+                              <div>
+                                <label className="block text-[10px] font-semibold text-slate-400 mb-1">Tipo de Equipo</label>
+                                <select
+                                  value={eq.type}
+                                  onChange={(e) => updateEquipment(eq.id, "type", e.target.value)}
+                                  className="w-full text-xs font-medium border border-slate-700 rounded-lg px-2.5 py-2 bg-slate-900 text-white focus:outline-none focus:ring-1 focus:ring-sky-500"
+                                >
+                                  {EQUIPMENT_TYPES.map(t => (
+                                    <option key={t} value={t}>{t}</option>
+                                  ))}
+                                </select>
+                              </div>
+
+                              <div>
+                                <label className="block text-[10px] font-semibold text-slate-400 mb-1">Descripción / Marca / Modelo</label>
+                                <input
+                                  type="text"
+                                  placeholder="Ej. Huawei MA5800 / Delta Rectifier"
+                                  value={eq.details}
+                                  onChange={(e) => updateEquipment(eq.id, "details", e.target.value)}
+                                  className="w-full text-xs font-medium border border-slate-700 rounded-lg px-2.5 py-2 bg-slate-900 text-white focus:outline-none focus:ring-1 focus:ring-sky-500"
+                                />
+                              </div>
+                            </div>
+
+                            <div className="flex items-center justify-between pt-2 border-t border-slate-700/60">
+                              <label className="cursor-pointer bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs font-semibold px-2.5 py-1.5 rounded-lg flex items-center space-x-1">
+                                <span>📷 {eq.photoBase64 ? "Cambiar Foto" : "Foto Detalle"}</span>
+                                <input
+                                  type="file"
+                                  accept="image/*"
+                                  capture="environment"
+                                  className="hidden"
+                                  onChange={(e) => handleEqPhoto(eq.id, e)}
+                                />
+                              </label>
+
+                              {eq.photoBase64 && (
+                                <div className="flex items-center space-x-2">
+                                  <span className="text-[10px] text-emerald-400 font-bold">✓ Lista</span>
+                                  <img src={eq.photoBase64} alt="Thumb" className="w-9 h-9 object-cover rounded border border-slate-600" />
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Pie del Modal */}
+                <div className="p-4 bg-slate-800 border-t border-slate-700">
+                  <button
+                    onClick={() => setSelectedRackId(null)}
+                    className="w-full bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs py-3 rounded-xl transition-all shadow-lg shadow-sky-950"
+                  >
+                    Guardar y Volver al Plano
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* =========================================================================
+              PLANTILLA PARA GENERAR PDF CON LOS 25 RACKS
+             ========================================================================= */}
+          <div style={{ position: "absolute", left: "-99999px", top: 0, width: "800px" }}>
+            <div id="pdf-report" className="p-8 bg-white text-slate-900 font-sans">
+              <div className="border-b-2 border-slate-900 pb-3 mb-5 flex justify-between items-start">
+                <div>
+                  <h1 className="text-xl font-black uppercase tracking-tight text-slate-950">
+                    Reporte Técnico • Head End 1680x540 Cm
+                  </h1>
+                  <p className="text-xs text-slate-600">Auditoría Georreferenciada de 25 Gabinetes y Racks</p>
+                </div>
+                <div className="text-right">
+                  <span className="text-xs font-mono font-bold bg-slate-100 px-2 py-1 border border-slate-300 rounded">
+                    {hubName}
+                  </span>
+                  <p className="text-[10px] text-slate-500 mt-1">{new Date().toLocaleString()}</p>
+                </div>
+              </div>
+
+              {/* Lista de Racks con Información */}
+              <div className="space-y-6">
+                {racksData.filter(r => r.photoBase64 || r.equipments.length > 0).map((rack) => (
+                  <div key={rack.id} className="pdf-avoid-break border border-slate-300 rounded-lg overflow-hidden">
+                    <div className="bg-slate-900 text-white px-4 py-2 flex justify-between items-center text-xs font-bold">
+                      <span>{rack.name} ({rack.category === 'energy' ? 'Energía' : 'Telecom'})</span>
+                      <span>{rack.equipments.length} Equipos RU</span>
+                    </div>
+
+                    <div className="p-4 grid grid-cols-3 gap-4">
+                      <div className="col-span-1">
+                        {rack.photoBase64 ? (
+                          <img
+                            src={rack.photoBase64}
+                            alt={rack.name}
+                            className="w-full h-44 object-contain rounded border border-slate-200 bg-slate-50"
+                          />
+                        ) : (
+                          <div className="w-full h-44 flex items-center justify-center text-[11px] text-slate-400 border border-dashed rounded">
+                            Sin foto frontal
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="col-span-2">
+                        <table className="w-full text-left text-xs border-collapse">
+                          <thead>
+                            <tr className="border-b border-slate-300 text-[10px] uppercase font-bold text-slate-500">
+                              <th className="py-1">RU</th>
+                              <th className="py-1">Tipo</th>
+                              <th className="py-1">Detalles</th>
+                              <th className="py-1 text-center">Foto</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {rack.equipments.map((eq, i) => (
+                              <tr key={eq.id}>
+                                <td className="py-1.5 font-bold font-mono text-sky-800">RU {i + 1}</td>
+                                <td className="py-1.5 font-medium">{eq.type}</td>
+                                <td className="py-1.5 text-slate-600">{eq.details || "-"}</td>
+                                <td className="py-1.5 text-center">
+                                  {eq.photoBase64 ? (
+                                    <img src={eq.photoBase64} className="w-8 h-8 object-cover rounded mx-auto border" />
+                                  ) : (
+                                    <span className="text-[9px] text-slate-400">N/A</span>
+                                  )}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    ReactDOM.render(<App />, document.getElementById("root"));
+  </script>
 </body>
 </html>
